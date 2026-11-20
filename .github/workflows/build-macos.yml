@@ -1,0 +1,54 @@
+name: Build macOS arm64
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: 构建 macOS 应用（ad-hoc 签名）
+        working-directory: apps/desktop
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: npm run tauri:build -- --target aarch64-apple-darwin --bundles app
+
+      - name: 打包 .app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find "$GITHUB_WORKSPACE" -type d -path '*release/bundle/macos/*.app' | head -n 1)"
+          echo "Found app: $APP_PATH"
+          test -n "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$GITHUB_WORKSPACE/Cursor-BYOK-macos-arm64.zip"
+          ls -lh "$GITHUB_WORKSPACE/Cursor-BYOK-macos-arm64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cursor-BYOK-macos-arm64
+          path: Cursor-BYOK-macos-arm64.zip
+          if-no-files-found: error
